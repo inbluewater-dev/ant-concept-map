@@ -89,7 +89,7 @@ export async function runAnalysis(
           : `${base}\n\n[주의] 이전 응답이 JSON 스키마에 맞지 않았습니다(${issue}). 스키마에 맞는 JSON만 출력하세요.`;
     const { text, model } = await call(prompt);
     try {
-      const parsed = AntAnalysis.safeParse(JSON.parse(stripFence(text)));
+      const parsed = AntAnalysis.safeParse(JSON.parse(stripFence(text).replace(/[\uE000-\uF8FF\uFFFD]/g, '')));
       if (parsed.success) {
         const analysis = tidy(parsed.data);
         const bad = nonActors(analysis);
@@ -112,8 +112,8 @@ export async function runAnalysis(
 }
 
 /** 사례 현장의 행위자가 아니라 이론·개념·글쓴이를 행위자로 잡은 경우 (AI 모델·교육과정 같은 것은 행위자로 둔다) */
-const NON_ACTOR = /(이론|존재론|인식론|방법론|패러다임|번역\s*모델|번역\s*과정|^ANT$|\bANT\b|행위자-?\s*네트워크|연구자|저자|필자|분석자)/;
+const NON_ACTOR = /(이론|존재론|인식론|방법론|패러다임|번역\s*모델|번역\s*과정|^ANT$|\bANT\b|행위자-?\s*네트워크|연구자|저자|필자|분석자|라투르|칼롱|^존\s*로$|Latour|Callon|John\s*Law)/;
 export function nonActors(a: AntAnalysis): string[] {
-  const authorLike = /논문|저자|본 연구|연구를 (수행|진행)|연구자로서/;
+  const authorLike = /논문|저자|본 연구|연구를 (수행|진행)|연구자로서|이론가|학자|이론을 (제안|창시|정립|발전)|창시자/;
   return a.actors.filter((x) => NON_ACTOR.test(x.name) || (x.nature === '인간' && authorLike.test(`${x.role} ${x.goal}`))).map((x) => x.name);
 }

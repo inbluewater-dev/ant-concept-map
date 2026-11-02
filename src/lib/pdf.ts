@@ -32,6 +32,7 @@ export async function pdfToText(file: File, onProgress?: (page: number, total: n
 export function cleanText(s: string): string {
   return s
     .replace(/\r/g, '')
+    .replace(/[\uE000-\uF8FF\uFFFD]/g, '') // 글꼴 전용 문자·깨진 문자
     .replace(/[ \t ]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')

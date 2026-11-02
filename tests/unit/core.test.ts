@@ -77,6 +77,10 @@ describe('분석 실행', () => {
     wrong.actors[1] = { ...wrong.actors[1], nature: '인간', role: '본 연구를 수행한 저자' };
     expect(nonActors(wrong)).toEqual(['칼롱의 번역 모델', wrong.actors[1].name]);
     expect(nonActors(MOCK_ANALYSIS)).toEqual([]);
+    const theorists = structuredClone(MOCK_ANALYSIS);
+    theorists.actors[0].name = '브뤼노 라투르';
+    theorists.actors[1].name = '존 로';
+    expect(nonActors(theorists)).toEqual(['브뤼노 라투르', '존 로']);
     const { g, calls } = fake([JSON.stringify(wrong), ok]);
     const r = await runAnalysis(g, { source: SAMPLE_SOURCE, focus: '', model: DEFAULT_MODEL }, { sleep: async () => {} });
     expect(calls).toHaveLength(2);
