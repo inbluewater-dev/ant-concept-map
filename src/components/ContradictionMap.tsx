@@ -4,7 +4,7 @@ import { wrap } from '../lib/layout';
 import type { AntAnalysis } from '../lib/schema';
 
 const W = 980;
-const ROW = 118;
+const ROW = 138;
 
 export const ContradictionMap = forwardRef<SVGSVGElement, { analysis: AntAnalysis }>(function ContradictionMap({ analysis }, ref) {
   const name = (id: string) => analysis.actors.find((a) => a.id === id)?.name ?? id;
@@ -40,24 +40,33 @@ export const ContradictionMap = forwardRef<SVGSVGElement, { analysis: AntAnalysi
                 <text x={30} y={y + j * 24 + 14} fontSize={12} fill="#991b1b">
                   {wrap(a, 15, 1)[0]}
                 </text>
-                <line x1={212} y1={y + j * 24 + 10} x2={300} y2={y + 40} stroke="#dc2626" strokeWidth={1.6} strokeDasharray="7 5" />
+                <line x1={212} y1={y + j * 24 + 10} x2={300} y2={y + 56} stroke="#dc2626" strokeWidth={1.6} strokeDasharray="7 5" />
               </g>
             ))}
-            <rect x={300} y={y} width={330} height={92} rx={8} fill="#fff" stroke="#dc2626" strokeWidth={2} strokeDasharray="7 5" />
-            <text x={314} y={y + 22} fontSize={14} fontWeight={700} fill="#b91c1c">
-              {wrap(c.label, 22, 1)[0]}
-            </text>
-            {wrap(c.description, 26, 3).map((l, j) => (
-              <text key={j} x={314} y={y + 44 + j * 16} fontSize={12} fill="#334155">
-                {l}
-              </text>
-            ))}
-            <line x1={632} y1={y + 46} x2={676} y2={y + 46} stroke="#16a34a" strokeWidth={2} markerEnd="url(#c-arr)" />
-            <rect x={680} y={y} width={280} height={92} rx={8} fill="#f0fdf4" stroke="#16a34a" strokeWidth={1.5} />
+            <rect x={300} y={y} width={330} height={112} rx={8} fill="#fff" stroke="#dc2626" strokeWidth={2} strokeDasharray="7 5" />
+            {(() => {
+              const title = wrap(c.label, 22, 2);
+              return (
+                <>
+                  {title.map((l, j) => (
+                    <text key={`t${j}`} x={314} y={y + 22 + j * 17} fontSize={14} fontWeight={700} fill="#b91c1c">
+                      {l}
+                    </text>
+                  ))}
+                  {wrap(c.description, 26, title.length > 1 ? 3 : 4).map((l, j) => (
+                    <text key={j} x={314} y={y + 26 + title.length * 17 + j * 16} fontSize={12} fill="#334155">
+                      {l}
+                    </text>
+                  ))}
+                </>
+              );
+            })()}
+            <line x1={632} y1={y + 56} x2={676} y2={y + 56} stroke="#16a34a" strokeWidth={2} markerEnd="url(#c-arr)" />
+            <rect x={680} y={y} width={280} height={112} rx={8} fill="#f0fdf4" stroke="#16a34a" strokeWidth={1.5} />
             <text x={694} y={y + 22} fontSize={12} fontWeight={700} fill="#15803d">
               대안
             </text>
-            {wrap(c.alternative || '자료에 대안이 나오지 않음', 21, 3).map((l, j) => (
+            {wrap(c.alternative || '자료에 대안이 나오지 않음', 21, 5).map((l, j) => (
               <text key={j} x={694} y={y + 44 + j * 16} fontSize={12} fill="#14532d">
                 {l}
               </text>

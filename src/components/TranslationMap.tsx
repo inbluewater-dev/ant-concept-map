@@ -4,20 +4,29 @@ import { wrap } from '../lib/layout';
 import type { AntAnalysis } from '../lib/schema';
 
 const W = 980;
+const STAGE_W = (W - 40) / 5;
+const CHIP_CHARS = Math.floor((STAGE_W - 26) / 11);
+const MAX_CHIPS = 6;
+const stageDesc = (t: AntAnalysis['translation'][number]) => wrap(t.description || (t.found ? '' : '자료에서 확인되지 않음'), 13, 7);
+/** 단계 아래 행위자 칩 — 긴 이름은 두 줄로 */
+const chipLines = (name: string) => wrap(name, CHIP_CHARS, 2);
+const chipH = (lines: string[]) => lines.length * 14 + 6;
 
 export const TranslationMap = forwardRef<SVGSVGElement, { analysis: AntAnalysis }>(function TranslationMap({ analysis }, ref) {
   const name = (id: string) => analysis.actors.find((a) => a.id === id)?.name ?? id;
   const order = { 높음: 0, 보통: 1, 낮음: 2 } as const;
   const opp = [...analysis.oppCandidates].sort((a, b) => order[a.confidence] - order[b.confidence])[0];
   const passing = opp ? opp.passingActorIds : [];
-  const stageW = (W - 40) / 5;
+  const stageW = STAGE_W;
 
   // 단계 칸 높이(설명 줄 + 행위자 칩)에 맞춰 OPP 구역을 내린다
   const stageBottom = Math.max(
-    ...analysis.translation.map((t) => 142 + wrap(t.description || (t.found ? '' : '자료에서 확인되지 않음'), 13, 4).length * 16 + 6 + Math.min(4, t.actorIds.length) * 22),
+    ...analysis.translation.map(
+      (t) => 142 + stageDesc(t).length * 16 + 6 + t.actorIds.slice(0, MAX_CHIPS).reduce((h, id) => h + chipH(chipLines(name(id))) + 4, 0) + (t.actorIds.length > MAX_CHIPS ? 18 : 0),
+    ),
   );
   const oppTop = stageBottom + 50;
-  const rowH = 46;
+  const rowH = 58;
   const oppH = Math.max(1, passing.length) * rowH + 30;
   const bbTop = oppTop + oppH + 60;
   const bbH = Math.max(1, analysis.blackBoxes.length) * 70 + 40;
@@ -44,8 +53,9 @@ export const TranslationMap = forwardRef<SVGSVGElement, { analysis: AntAnalysis 
         const fill = t.found ? '#1e3a8a' : '#ffffff';
         const fg = t.found ? '#ffffff' : '#94a3b8';
         const pts = `${x},70 ${x + stageW - 18},70 ${x + stageW - 2},95 ${x + stageW - 18},120 ${x},120 ${x + (i ? 16 : 0)},95`;
-        const desc = wrap(t.description || (t.found ? '' : '자료에서 확인되지 않음'), 13, 4);
+        const desc = stageDesc(t);
         const actors = t.actorIds.map(name);
+        let cy = 142 + desc.length * 16 + 6;
         return (
           <g key={t.stage} data-testid={`stage-${i}`}>
             <polygon points={pts} fill={fill} stroke={t.found ? '#1e3a8a' : '#94a3b8'} strokeDasharray={t.found ? undefined : '5 4'} strokeWidth={1.5} />
@@ -57,14 +67,27 @@ export const TranslationMap = forwardRef<SVGSVGElement, { analysis: AntAnalysis 
                 {l}
               </text>
             ))}
-            {actors.slice(0, 4).map((a, j) => (
-              <g key={j} transform={`translate(${x + 6}, ${142 + desc.length * 16 + 6 + j * 22})`}>
-                <rect width={Math.min(stageW - 24, 14 + a.length * 12)} height={18} rx={9} fill="#eff6ff" stroke="#bfdbfe" />
-                <text x={7} y={13} fontSize={11} fill="#1d4ed8">
-                  {wrap(a, Math.floor((stageW - 38) / 12), 1)[0]}
-                </text>
-              </g>
-            ))}
+            {actors.slice(0, MAX_CHIPS).map((a, j) => {
+              const lines = chipLines(a);
+              const h = chipH(lines);
+              const y = cy;
+              cy += h + 4;
+              return (
+                <g key={j} transform={`translate(${x + 6}, ${y})`}>
+                  <rect width={stageW - 24} height={h} rx={9} fill="#eff6ff" stroke="#bfdbfe" />
+                  {lines.map((l, k) => (
+                    <text key={k} x={8} y={14 + k * 14} fontSize={11} fill="#1d4ed8">
+                      {l}
+                    </text>
+                  ))}
+                </g>
+              );
+            })}
+            {actors.length > MAX_CHIPS && (
+              <text x={x + 10} y={cy + 10} fontSize={11} fill="#64748b">
+                외 {actors.length - MAX_CHIPS}개
+              </text>
+            )}
           </g>
         );
       })}
@@ -84,16 +107,20 @@ export const TranslationMap = forwardRef<SVGSVGElement, { analysis: AntAnalysis 
             const actor = analysis.actors.find((a) => a.id === id);
             return (
               <g key={id}>
-                <rect x={20} y={y} width={200} height={34} rx={6} fill="#f8fafc" stroke="#cbd5e1" />
-                <text x={30} y={y + 22} fontSize={13} fontWeight={600} fill="#0f172a">
-                  {wrap(name(id), 14, 1)[0]}
-                </text>
-                <line x1={222} y1={y + 17} x2={W / 2 - 132} y2={oppTop + oppH / 2 - 10} stroke="#111827" strokeWidth={1.4} markerEnd="url(#t-arr)" />
-                <line x1={W / 2 + 132} y1={oppTop + oppH / 2 - 10} x2={W - 262} y2={y + 17} stroke="#111827" strokeWidth={1.4} markerEnd="url(#t-arr)" />
-                <rect x={W - 260} y={y} width={240} height={34} rx={6} fill="#f0fdf4" stroke="#86efac" />
-                <text x={W - 250} y={y + 22} fontSize={12} fill="#166534">
-                  {wrap(`목표: ${actor?.goal || '자료에 명시 안 됨'}`, 19, 1)[0]}
-                </text>
+                <rect x={20} y={y} width={200} height={46} rx={6} fill="#f8fafc" stroke="#cbd5e1" />
+                {wrap(name(id), 14, 2).map((l, k, all) => (
+                  <text key={k} x={30} y={y + (all.length > 1 ? 19 : 28) + k * 16} fontSize={13} fontWeight={600} fill="#0f172a">
+                    {l}
+                  </text>
+                ))}
+                <line x1={222} y1={y + 23} x2={W / 2 - 132} y2={oppTop + oppH / 2 - 10} stroke="#111827" strokeWidth={1.4} markerEnd="url(#t-arr)" />
+                <line x1={W / 2 + 132} y1={oppTop + oppH / 2 - 10} x2={W - 262} y2={y + 23} stroke="#111827" strokeWidth={1.4} markerEnd="url(#t-arr)" />
+                <rect x={W - 260} y={y} width={240} height={46} rx={6} fill="#f0fdf4" stroke="#86efac" />
+                {wrap(`목표: ${actor?.goal || '자료에 명시 안 됨'}`, 19, 2).map((l, k) => (
+                  <text key={k} x={W - 250} y={y + 19 + k * 16} fontSize={12} fill="#166534">
+                    {l}
+                  </text>
+                ))}
               </g>
             );
           })}
