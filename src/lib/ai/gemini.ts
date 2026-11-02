@@ -28,7 +28,7 @@ function firebaseApp(): FirebaseApp {
 
 export const geminiGenerate: GenerateFn = async ({ model, prompt, jsonSchema }) => {
   const ai = getAI(firebaseApp(), { backend: new GoogleAIBackend() });
-  const m = getGenerativeModel(ai, { model, generationConfig: { responseMimeType: 'application/json', responseJsonSchema: jsonSchema, temperature: 0.4 } });
+  const m = getGenerativeModel(ai, { model, generationConfig: { responseMimeType: 'application/json', responseJsonSchema: jsonSchema, temperature: 0.2 } });
   const res = await m.generateContent(prompt);
   return res.response.text();
 };
