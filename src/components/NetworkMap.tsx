@@ -38,7 +38,7 @@ export const NetworkMap = forwardRef<SVGSVGElement, Props>(function NetworkMap({
     if (!drag.current) return;
     const p = toSvg(e);
     const { id, dx, dy } = drag.current;
-    setPos((s) => ({ ...s, [id]: { x: Math.max(30, Math.min(MAP_W - 30, p.x + dx)), y: Math.max(30, Math.min(MAP_H - 100, p.y + dy)) } }));
+    setPos((s) => ({ ...s, [id]: { x: Math.max(30, Math.min(MAP_W - 30, p.x + dx)), y: Math.max(30, Math.min(MAP_H - 135, p.y + dy)) } }));
   };
   const onUp = () => (drag.current = null);
 

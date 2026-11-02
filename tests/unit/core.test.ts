@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MODEL, runAnalysis, type GenerateFn } from '../../src/lib/ai/core';
+import { DEFAULT_MODEL, nonActors, runAnalysis, type GenerateFn } from '../../src/lib/ai/core';
 import { MOCK_ANALYSIS } from '../../src/lib/ai/mock';
 import { SourceIndex, normalize } from '../../src/lib/evidence';
 import { layoutNetwork, MAP_H, MAP_W, wrap } from '../../src/lib/layout';
@@ -70,6 +70,22 @@ describe('분석 실행', () => {
     const r = await run(g);
     expect(r.analysis.actors.length).toBeGreaterThan(2);
     expect(calls[1].prompt).toContain('스키마에 맞지 않았습니다');
+  });
+  it('이론·개념·저자를 행위자로 잡으면 사례 중심으로 한 번 더 받는다', async () => {
+    const wrong = structuredClone(MOCK_ANALYSIS);
+    wrong.actors[0].name = '칼롱의 번역 모델';
+    wrong.actors[1] = { ...wrong.actors[1], nature: '인간', role: '본 연구를 수행한 저자' };
+    expect(nonActors(wrong)).toEqual(['칼롱의 번역 모델', wrong.actors[1].name]);
+    expect(nonActors(MOCK_ANALYSIS)).toEqual([]);
+    const { g, calls } = fake([JSON.stringify(wrong), ok]);
+    const r = await runAnalysis(g, { source: SAMPLE_SOURCE, focus: '', model: DEFAULT_MODEL }, { sleep: async () => {} });
+    expect(calls).toHaveLength(2);
+    expect(calls[1].prompt).toContain('칼롱의 번역 모델');
+    expect(nonActors(r.analysis)).toEqual([]);
+    // 두 번째도 틀리면 그대로 돌려준다(멈추지 않는다)
+    const f2 = fake([JSON.stringify(wrong), JSON.stringify(wrong)]);
+    const r2 = await runAnalysis(f2.g, { source: SAMPLE_SOURCE, focus: '', model: DEFAULT_MODEL }, { sleep: async () => {} });
+    expect(r2.analysis.actors[0].name).toBe('칼롱의 번역 모델');
   });
   it('붐비면 같은 모델 재시도 후 다음 모델, 한도(429)면 바로 다음 모델', async () => {
     const busy = () => new Error('[503] high demand');

@@ -35,7 +35,7 @@ export function layoutNetwork(a: AntAnalysis, withOpp: boolean): Record<string, 
   const xs = nodes.map((n) => n.x!);
   const ys = nodes.map((n) => n.y!);
   const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-  const pad = { x: 90, top: 70, bottom: 120 };
+  const pad = { x: 90, top: 70, bottom: 155 }; // 아래쪽은 범례 자리
   const sx = (MAP_W - pad.x * 2) / Math.max(1, maxX - minX);
   const sy = (MAP_H - pad.top - pad.bottom) / Math.max(1, maxY - minY);
   const s = Math.min(sx, sy, 1.4);
