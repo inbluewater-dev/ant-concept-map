@@ -1,12 +1,11 @@
 // AI에게 주는 지시문 — ANT 개념 정의와 분석 규칙(특히 OPP 판정 원칙)을 담는다
-import { ACTOR_TYPES, RELATION_KINDS, TRANSLATION_STAGES } from './schema';
+import { ACTOR_TYPES, RELATION_KINDS, TRANSLATION_STAGES, type AntAnalysis } from './schema';
 
 export const MAX_SOURCE_CHARS = 120_000;
 
-export function buildPrompt(source: string, focus: string): string {
-  return `[역할] 당신은 행위자 네트워크 이론(Actor-Network Theory, ANT)으로 자료를 분석하는 연구 보조자입니다. 아래 [자료]를 읽고 ANT 개념도를 그릴 수 있게 정리합니다.
+export const MAX_INTERVIEW_CHARS = 60_000;
 
-[개념 정의]
+const CONCEPTS = `[개념 정의]
 - 행위자(Actor/Actant): 어떤 일이 "되게" 만드는 것. 사람만이 아니라 자료·도구·기술·시스템·제도·규범·공간도 같은 자격의 행위자다(대칭성). 비인간 행위자를 빠뜨리지 않는다.
 - 네트워크: 행위자들이 연결되어 관계를 만드는 그물. 직접 연결되지 않고 다른 행위자를 거쳐 연결되는 관계도 있다.
 - 번역(Translation): 서로 다른 목적을 가진 행위자들이 하나의 방향으로 조정되는 과정. 칼롱의 단계: ${TRANSLATION_STAGES.join(' → ')}.
@@ -14,10 +13,11 @@ export function buildPrompt(source: string, focus: string): string {
 - OPP(의무 통과점, Obligatory Passage Point): 여러 행위자가 각자의 목표를 이루기 위해 반드시 거쳐야 하도록 만들어진 관문.
 - 블랙박스: 네트워크가 안정되어 내부의 복잡한 협상·과정이 보이지 않고 하나의 당연한 것처럼 작동하는 상태.
 - 모순: 네트워크 안의 갈등·불일치·저항. 대안은 그 모순을 다시 잇는 방법.
+`;
 
-[반드시 지킬 규칙]
+const rules = (quoteFrom: string) => `[반드시 지킬 규칙]
 1. 자료에 근거한 것만 쓴다. 자료에 없는 사실·사례·수치를 지어내지 않는다.
-2. 모든 evidence.quote는 [자료]에서 그대로 복사한 연속된 문장 또는 구절이다(15~120자). 고쳐 쓰거나 요약하지 않는다. 근거가 없으면 evidence를 빈 배열로 둔다.
+2. 모든 evidence.quote는 ${quoteFrom}에서 그대로 복사한 연속된 문장 또는 구절이다(15~120자). 고쳐 쓰거나 요약하지 않는다. 근거가 없으면 evidence를 빈 배열로 둔다.
 3. OPP는 "중요해 보이는 것"이나 "네트워크 가운데 있는 것"이 아니다. 분석자가 임의로 지정하지 않는다. 각 후보마다 어떤 행위자들이 각자 어떤 목표를 이루기 위해 그 관문을 거쳐야 하는지 reasoning에 쓴다. 자료가 그 관계를 직접 보여 주지 않으면 confidence를 "낮음"으로 한다. 후보는 0~3개.
 4. 번역 5단계는 ${TRANSLATION_STAGES.map((s) => `"${s}"`).join(', ')} 순서로 정확히 5개를 쓴다. 자료에서 확인되지 않는 단계는 found=false, description에 "자료에서 확인되지 않음"과 그 이유를 쓴다.
 5. 분석 대상은 자료가 다루는 "사례 현장"(정책이 실행되는 학교·기관·사람·사물)이다. 자료가 ANT 같은 이론·방법론을 설명하는 글이라면, 그 글이 예로 드는 사례를 분석 대상으로 삼고 summary 첫 문장에 그 사실을 밝힌다.
@@ -30,9 +30,61 @@ export function buildPrompt(source: string, focus: string): string {
 7. actor.type은 ${ACTOR_TYPES.join(' / ')} 중 하나, nature는 "인간" 또는 "비인간". relation.kind는 ${RELATION_KINDS.join(' / ')} 중 하나이며 갈등은 "갈등·모순"으로 표시한다.
 8. boundary에는 이 분석이 네트워크를 어디서 끊었는지(포함한 것/뺀 것)와, 자료에 드러나지 않지만 영향을 받거나 주는 "보이지 않는 타자"를 쓴다.
 9. 모든 설명은 한국어로, 짧고 분명하게 쓴다.
-${focus.trim() ? `\n[분석 초점 — 사용자 요청]\n${focus.trim()}\n` : ''}
+`;
+
+const focusBlock = (focus: string) => (focus.trim() ? `\n[분석 초점 — 사용자 요청]\n${focus.trim()}\n` : '');
+
+export function buildPrompt(source: string, focus: string): string {
+  return `[역할] 당신은 행위자 네트워크 이론(Actor-Network Theory, ANT)으로 자료를 분석하는 연구 보조자입니다. 아래 [자료]를 읽고 ANT 개념도를 그릴 수 있게 정리합니다.
+
+${CONCEPTS}
+${rules('[자료]')}${focusBlock(focus)}
 [출력] 지정된 JSON 스키마만 출력한다.
 
 [자료]
 ${source}`;
+}
+
+export interface InterviewDoc {
+  name: string;
+  text: string;
+}
+
+/** 2차 분석: 1차 결과(근거 인용은 뺌) + 원 자료 + 인터뷰들 → 고친 분석 + 변화 목록 */
+export function buildFollowupPrompt(prev: AntAnalysis, source: string, interviews: InterviewDoc[], focus: string): string {
+  const strip = (a: AntAnalysis) => ({
+    ...a,
+    actors: a.actors.map(({ evidence: _e, ...x }) => x),
+    relations: a.relations.map(({ evidence: _e, ...x }) => x),
+    translation: a.translation.map(({ evidence: _e, ...x }) => x),
+    oppCandidates: a.oppCandidates.map(({ evidence: _e, ...x }) => x),
+    blackBoxes: a.blackBoxes.map(({ evidence: _e, ...x }) => x),
+    contradictions: a.contradictions.map(({ evidence: _e, ...x }) => x),
+  });
+  const maxId = prev.actors.reduce((m, a) => Math.max(m, Number(/^a(\d+)$/.exec(a.id)?.[1] ?? 0)), 0);
+  const labels = interviews.map((_, i) => `[인터뷰 ${i + 1}]`).join(', ');
+  return `[역할] 당신은 행위자 네트워크 이론(Actor-Network Theory, ANT)으로 자료를 분석하는 연구 보조자입니다. [1차 분석 결과]는 [원 자료]만 보고 만든 것입니다. 이번에는 행위자들의 실제 목소리인 ${labels}를 더해 1차 분석을 다시 검토하고 고친 2차 분석을 만듭니다.
+
+${CONCEPTS}
+${rules(`[원 자료] 또는 ${labels}`)}
+[2차 분석 규칙]
+10. 1차 결과의 행위자 id와 이름을 그대로 유지한다. 인터뷰에서 새로 드러난 행위자는 a${maxId + 1}부터 이어서 번호를 붙인다. 인터뷰가 반박하지 않는 1차 항목은 지우지 않는다.
+11. 인터뷰는 말한 사람 한 명의 관점이다. 인터뷰 하나만으로 OPP를 확정하지 않는다. 여러 인터뷰가 같은 관문을 말할 때 confidence를 올리고, 인터뷰끼리 어긋나면 모순(contradictions)에 쓴다.
+12. changes에는 1차 결과와 비교해 인터뷰가 바꾼 것을 1~15개 쓴다.
+   - kind: "확인됨"(1차 판단을 인터뷰가 뒷받침) / "새로 나옴"(인터뷰에서 새로 드러난 행위자·관계·번역 단계·블랙박스·모순) / "달라짐"(관계의 종류·역할·목표·OPP 확신 등이 바뀜) / "반박됨"(인터뷰가 1차 판단과 어긋남)
+   - target: 바뀐 항목의 이름(예: 행위자 이름, "교과교사 → 사서교사 관계", "OPP 후보: …")
+   - description: 무엇이 어떻게 바뀌었는지 한두 문장. 어느 인터뷰에서 나왔는지 [인터뷰 n]으로 밝힌다.
+   - evidence: 인터뷰에서 그대로 옮긴 인용을 1개 이상 붙인다.
+13. 인터뷰한 사람은 이름 대신 [인터뷰 n]이나 역할(예: 담당 교사)로 부른다. 인터뷰에 나온 개인 이름·연락처는 결과에 옮기지 않는다.
+14. summary 첫 문장은 "2차 분석:"으로 시작하고 인터뷰로 무엇이 달라졌는지 쓴다. title은 1차 title 뒤에 " (2차)"를 붙인다.
+${focusBlock(focus)}
+[출력] 지정된 JSON 스키마만 출력한다.
+
+[1차 분석 결과]
+${JSON.stringify(strip(prev))}
+
+[원 자료]
+${source}
+
+${interviews.map((d, i) => `[인터뷰 ${i + 1}] ${d.name}\n${d.text}`).join('\n\n')}`;
 }

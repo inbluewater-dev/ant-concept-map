@@ -31,17 +31,35 @@ function longestCommon(hay: string, needle: string): number {
   return best;
 }
 
+export interface SourceDoc {
+  name: string;
+  text: string;
+}
+
+/** 원문(과 2차 분석의 인터뷰들)에서 인용을 찾는다. 여러 자료면 어느 자료에서 찾았는지도 알려 준다 */
 export class SourceIndex {
-  private norm: string;
-  constructor(source: string) {
-    this.norm = normalize(source);
+  private docs: { name: string; norm: string }[];
+  constructor(source: string, extra: SourceDoc[] = []) {
+    this.docs = [{ name: '원 자료', norm: normalize(source) }, ...extra.map((d) => ({ name: d.name, norm: normalize(d.text) }))];
+  }
+  get multi(): boolean {
+    return this.docs.length > 1;
   }
   check(quote: string): EvidenceStatus {
+    return this.locate(quote).status;
+  }
+  /** 인용이 있는 자료 이름 (없으면 null) */
+  where(quote: string): string | null {
+    return this.locate(quote).doc;
+  }
+  private locate(quote: string): { status: EvidenceStatus; doc: string | null } {
     const q = normalize(quote);
-    if (q.length < 4) return 'missing';
-    if (this.norm.includes(q)) return 'exact';
+    if (q.length < 4) return { status: 'missing', doc: null };
+    for (const d of this.docs) if (d.norm.includes(q)) return { status: 'exact', doc: d.name };
     // 앞뒤가 조금 다른 경우: 긴 인용의 70% 이상이 이어서 일치하면 부분 일치
     const needle = q.slice(0, 200);
-    return longestCommon(this.norm, needle) >= Math.max(8, Math.floor(needle.length * 0.7)) ? 'partial' : 'missing';
+    const need = Math.max(8, Math.floor(needle.length * 0.7));
+    for (const d of this.docs) if (longestCommon(d.norm, needle) >= need) return { status: 'partial', doc: d.name };
+    return { status: 'missing', doc: null };
   }
 }

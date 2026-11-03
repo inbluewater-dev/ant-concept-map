@@ -71,7 +71,20 @@ export const AntAnalysis = z.object({
   boundary: z.object({ included: text, excluded: text, invisibleOthers: z.array(text) }),
 });
 
+/** 2차 분석: 1차 결과와 비교해 인터뷰 등 추가 자료가 바꾼 것 */
+export const CHANGE_KINDS = ['확인됨', '새로 나옴', '달라짐', '반박됨'] as const;
+export const Change = z.object({
+  kind: z.enum(CHANGE_KINDS),
+  target: text,
+  description: text,
+  evidence: z.array(Evidence),
+});
+export const FollowupAnalysis = AntAnalysis.extend({ changes: z.array(Change) });
+
 export type Evidence = z.infer<typeof Evidence>;
+export type Change = z.infer<typeof Change>;
+export type ChangeKind = (typeof CHANGE_KINDS)[number];
+export type FollowupAnalysis = z.infer<typeof FollowupAnalysis>;
 export type Actor = z.infer<typeof Actor>;
 export type Relation = z.infer<typeof Relation>;
 export type TranslationStep = z.infer<typeof TranslationStep>;

@@ -1,8 +1,9 @@
 // 분석 실행: 지시문 → JSON 스키마 강제 생성 → zod 검증(틀리면 이유를 붙여 1회 재시도) → 정리
 // 서버가 붐비거나(5xx) 무료 한도(429)가 차면 다음 모델로 넘어간다
+import type { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { buildPrompt } from '../prompt';
-import { AntAnalysis, tidy } from '../schema';
+import { buildFollowupPrompt, buildPrompt, type InterviewDoc } from '../prompt';
+import { AntAnalysis, FollowupAnalysis, tidy, type Change } from '../schema';
 
 export type GenerateFn = (input: { model: string; prompt: string; jsonSchema: Record<string, unknown> }) => Promise<string>;
 
@@ -18,13 +19,14 @@ const FALLBACK: ModelId[] = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', '
 
 export class AiError extends Error {}
 
-function jsonSchema(): Record<string, unknown> {
-  const s = zodToJsonSchema(AntAnalysis, { $refStrategy: 'none', target: 'jsonSchema7' }) as Record<string, unknown>;
+function jsonSchema(zs: z.ZodTypeAny): Record<string, unknown> {
+  const s = zodToJsonSchema(zs, { $refStrategy: 'none', target: 'jsonSchema7' }) as Record<string, unknown>;
   delete s.$schema;
   delete s.definitions;
   return s;
 }
-const SCHEMA = jsonSchema();
+const SCHEMA = jsonSchema(AntAnalysis);
+const FOLLOWUP_SCHEMA = jsonSchema(FollowupAnalysis);
 
 const msgOf = (e: unknown) => String((e as { message?: string })?.message ?? e);
 export const isTransient = (e: unknown) => /\b(500|502|503|504)\b|UNAVAILABLE|overloaded|high demand|INTERNAL|DEADLINE_EXCEEDED/i.test(msgOf(e));
@@ -50,23 +52,46 @@ export interface RunResult {
   analysis: AntAnalysis;
   model: string;
 }
+export interface FollowupResult extends RunResult {
+  changes: Change[];
+}
+type RunOpts = { sleep?: (ms: number) => Promise<void>; onStatus?: (s: string) => void };
 
-export async function runAnalysis(
+export async function runAnalysis(generate: GenerateFn, input: { source: string; focus: string; model: ModelId }, opts: RunOpts = {}): Promise<RunResult> {
+  const r = await runStructured(generate, input.model, buildPrompt(input.source, input.focus), AntAnalysis, SCHEMA, opts);
+  return { analysis: r.value, model: r.model };
+}
+
+/** 2차 분석: 1차 결과 + 원 자료 + 인터뷰 → 고친 분석과 변화 목록 */
+export async function runFollowup(
   generate: GenerateFn,
-  input: { source: string; focus: string; model: ModelId },
-  opts: { sleep?: (ms: number) => Promise<void>; onStatus?: (s: string) => void } = {},
-): Promise<RunResult> {
+  input: { prev: AntAnalysis; source: string; interviews: InterviewDoc[]; focus: string; model: ModelId },
+  opts: RunOpts = {},
+): Promise<FollowupResult> {
+  const prompt = buildFollowupPrompt(input.prev, input.source, input.interviews, input.focus);
+  const r = await runStructured(generate, input.model, prompt, FollowupAnalysis, FOLLOWUP_SCHEMA, opts);
+  const { changes, ...analysis } = r.value;
+  return { analysis, changes: changes.filter((c) => c.target.trim() || c.description.trim()), model: r.model };
+}
+
+async function runStructured<S extends typeof AntAnalysis | typeof FollowupAnalysis>(
+  generate: GenerateFn,
+  first: ModelId,
+  base: string,
+  zs: S,
+  schema: Record<string, unknown>,
+  opts: RunOpts,
+): Promise<{ value: z.infer<S>; model: string }> {
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const models = [input.model, ...FALLBACK.filter((m) => m !== input.model)];
-  const base = buildPrompt(input.source, input.focus);
+  const models = [first, ...FALLBACK.filter((m) => m !== first)];
 
   async function call(prompt: string): Promise<{ text: string; model: string }> {
     let last: unknown;
     for (const model of models) {
       for (let tryNo = 0; tryNo < 2; tryNo++) {
         try {
-          if (model !== input.model) opts.onStatus?.(`${model}(으)로 다시 시도하는 중…`);
-          return { text: await generate({ model, prompt, jsonSchema: SCHEMA }), model };
+          if (model !== first) opts.onStatus?.(`${model}(으)로 다시 시도하는 중…`);
+          return { text: await generate({ model, prompt, jsonSchema: schema }), model };
         } catch (e) {
           last = e;
           if (isQuota(e)) break;
@@ -79,7 +104,7 @@ export async function runAnalysis(
   }
 
   let issue = '';
-  let fallback: { analysis: AntAnalysis; model: string } | null = null;
+  let fallback: { value: z.infer<S>; model: string } | null = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     const prompt =
       attempt === 0
@@ -89,13 +114,13 @@ export async function runAnalysis(
           : `${base}\n\n[주의] 이전 응답이 JSON 스키마에 맞지 않았습니다(${issue}). 스키마에 맞는 JSON만 출력하세요.`;
     const { text, model } = await call(prompt);
     try {
-      const parsed = AntAnalysis.safeParse(JSON.parse(stripFence(text).replace(/[\uE000-\uF8FF\uFFFD]/g, '')));
+      const parsed = zs.safeParse(JSON.parse(stripFence(text).replace(/[\uE000-\uF8FF\uFFFD]/g, '')));
       if (parsed.success) {
-        const analysis = tidy(parsed.data);
-        const bad = nonActors(analysis);
-        if (bad.length === 0 || attempt === 1) return { analysis, model };
+        const value = { ...parsed.data, ...tidy(parsed.data) } as z.infer<S>;
+        const bad = nonActors(value);
+        if (bad.length === 0 || attempt === 1) return { value, model };
         // 이론·개념·저자를 행위자로 잡았으면 한 번 더 받는다 (그래도 그러면 그대로 돌려준다)
-        fallback = { analysis, model };
+        fallback = { value, model };
         issue = `이론·개념·저자는 행위자가 아닙니다: ${bad.join(', ')}. 자료가 다루는 사례 현장(학교·기관·사람·문서·기기·제도·공간)에서 행위자를 다시 찾고, 모순도 현장 행위자 사이의 갈등으로 쓰세요.`;
         opts.onStatus?.('사례 현장 중심으로 다시 분석하는 중…');
         continue;

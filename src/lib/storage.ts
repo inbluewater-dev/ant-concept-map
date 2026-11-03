@@ -1,5 +1,6 @@
 // 이 브라우저에만 남는 최근 분석 기록 (최대 10개)
-import { AntAnalysis } from './schema';
+import type { InterviewDoc } from './prompt';
+import { AntAnalysis, type Change } from './schema';
 
 export interface SavedRun {
   id: string;
@@ -9,6 +10,12 @@ export interface SavedRun {
   focus: string;
   model: string;
   analysis: AntAnalysis;
+  /** 2차 이상 분석일 때: 몇 차인지, 바탕이 된 앞 분석, 더한 인터뷰, AI가 정리한 변화 */
+  stage?: number;
+  parentId?: string;
+  prevAnalysis?: AntAnalysis;
+  interviews?: InterviewDoc[];
+  changes?: Change[];
 }
 
 const KEY = 'ant-concept-map:history:v1';
@@ -31,7 +38,7 @@ export function saveRun(run: SavedRun): SavedRun[] {
   } catch {
     // 저장 공간이 부족하면 원문을 빼고 다시 시도
     try {
-      localStorage.setItem(KEY, JSON.stringify(next.map((r, i) => (i === 0 ? r : { ...r, source: '' }))));
+      localStorage.setItem(KEY, JSON.stringify(next.map((r, i) => (i === 0 ? r : { ...r, source: '', interviews: r.interviews?.map((d) => ({ ...d, text: '' })) }))));
     } catch {
       /* 저장하지 못해도 화면은 그대로 쓴다 */
     }

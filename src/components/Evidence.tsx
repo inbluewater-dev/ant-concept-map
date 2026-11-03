@@ -10,9 +10,11 @@ export function EvidenceList({ items, index }: { items: Evidence[]; index: Sourc
     <ul className="space-y-1">
       {items.map((e, i) => {
         const st = index ? index.check(e.quote) : null;
+        const doc = index?.multi ? index.where(e.quote) : null;
         return (
           <li key={i} className="flex items-start gap-2 text-xs">
             {st && <span className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${TONE[st]}`}>{EVIDENCE_LABEL[st]}</span>}
+            {doc && <span className="shrink-0 rounded border border-slate-300 px-1.5 py-0.5 text-slate-600">{doc}</span>}
             <q className="text-slate-700">{e.quote}</q>
           </li>
         );

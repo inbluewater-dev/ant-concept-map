@@ -59,3 +59,43 @@ test('한글 파일은 안내', async ({ page }) => {
   await page.getByLabel('자료 파일').setInputFiles({ name: '사례.hwp', mimeType: 'application/x-hwp', buffer: Buffer.from('x') });
   await expect(page.getByRole('alert')).toContainText('본문을 복사해 붙여 넣어');
 });
+
+test('2차 분석: 예시 인터뷰를 더하면 변화 탭과 새 행위자 표시가 나온다', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '예시 자료 넣기' }).click();
+  await page.getByRole('button', { name: '개념도 만들기' }).click();
+  await expect(page.getByRole('heading', { name: '(샘플) 고등학교 도서관협력수업의 행위자 네트워크' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '2차 변화' })).toHaveCount(0);
+
+  const go = page.getByRole('button', { name: /인터뷰 \d+건 더해 2차 분석/ });
+  await expect(go).toBeDisabled();
+  await page.getByRole('button', { name: '예시 인터뷰 넣기' }).click();
+  await expect(page.getByRole('list', { name: '넣은 인터뷰' }).getByRole('listitem')).toHaveCount(3);
+  // 붙여 넣기로 하나 더 넣었다가 빼기
+  await page.getByLabel('인터뷰 글').fill('도서관에 갈 때마다 담임 선생님 허락을 받아야 해서 번거로웠어요.');
+  await page.getByRole('button', { name: '목록에 추가' }).click();
+  await page.getByRole('button', { name: '인터뷰 4 빼기' }).click();
+  await go.click();
+
+  await expect(page.getByTestId('stage-note')).toContainText('2차 분석');
+  await expect(page.getByTestId('stage-note')).toContainText('인터뷰 3건');
+  await expect(page.getByRole('tab', { name: '2차 변화' })).toHaveAttribute('aria-selected', 'true');
+  const ch = page.getByTestId('changes');
+  await expect(ch.getByText('교감', { exact: true }).first()).toBeVisible();
+  await expect(ch.getByText('평가 기준표 → 사서교사: 협력·지원 → 갈등·모순')).toBeVisible();
+  await expect(ch.getByText('원문에 없음')).toHaveCount(0);
+  await expect(ch.getByText('인터뷰 2').first()).toBeVisible();
+  await expect(page.getByTestId('evidence-stats')).toContainText('원문에 없음 0');
+  await page.screenshot({ path: 'test-results/04-changes.png', fullPage: true });
+
+  await page.getByRole('tab', { name: '① 네트워크도' }).click();
+  await expect(page.getByTestId('new-a12')).toBeVisible();
+  await expect(page.getByTestId('new-a1')).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/05-network-2nd.png', fullPage: true });
+
+  // 앞 분석으로 돌아가기 + 기록
+  await page.getByRole('button', { name: '앞 분석 보기' }).click();
+  await expect(page.getByRole('tab', { name: '2차 변화' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '(샘플) 고등학교 도서관협력수업의 행위자 네트워크' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^\[2차\]/ })).toBeVisible();
+});

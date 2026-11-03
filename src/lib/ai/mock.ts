@@ -1,6 +1,6 @@
 // 샘플(Mock) 모드 — 인터넷·Firebase 없이 화면과 개념도를 시험한다. 예시 자료에 맞춘 고정 결과를 돌려준다.
 import type { GenerateFn } from './core';
-import type { AntAnalysis } from '../schema';
+import type { AntAnalysis, FollowupAnalysis } from '../schema';
 
 export const MOCK_ANALYSIS: AntAnalysis = {
   title: '(샘플) 고등학교 도서관협력수업의 행위자 네트워크',
@@ -71,7 +71,53 @@ export const MOCK_ANALYSIS: AntAnalysis = {
   },
 };
 
-export const mockGenerate: GenerateFn = async () => {
+/** 예시 자료 + 예시 인터뷰 3건으로 한 2차 분석의 고정 결과 */
+const M = MOCK_ANALYSIS;
+export const MOCK_FOLLOWUP: FollowupAnalysis = {
+  ...M,
+  title: `${M.title} (2차)`,
+  summary:
+    '2차 분석: (샘플 결과 — 실제 AI가 아닙니다) 인터뷰로 공동 수업 설계가 관문이라는 점은 확인되었고, 시간표를 바꾼 교감과 학생이 먼저 쓰는 AI 챗봇이 새 행위자로 드러났습니다. 평가 기준표는 갈등을 풀었다기보다 남겨 둔 것으로 보입니다.',
+  actors: [
+    ...M.actors.map((a) =>
+      a.id === 'a6' ? { ...a, role: '계획서·보고서 제출만 받는 통로', evidence: [...a.evidence, { quote: 'LMS는 제출만 받는 곳이라 실제 피드백은 종이 활동지로 했어요' }] } : a,
+    ),
+    { id: 'a12', name: '교감', nature: '인간', type: '인간', role: '시간표를 바꿔 블록 수업을 가능하게 함', goal: '', evidence: [{ quote: '블록 수업은 교감 선생님이 시간표를 바꿔 주셔서 가능했어요' }] },
+    { id: 'a13', name: 'AI 챗봇', nature: '비인간', type: '기술·시스템', role: '학생이 자료를 먼저 묻는 곳', goal: '', evidence: [{ quote: '자료는 처음에 AI 챗봇한테 물어보고, 나중에 출처를 찾아 붙였어요' }] },
+    { id: 'a14', name: '종이 활동지', nature: '비인간', type: '자료·도구', role: '사서교사 확인을 받는 실제 피드백 통로', goal: '', evidence: [{ quote: '아이들이 활동지를 들고 도서관에 가서 사서 선생님께 확인을 받았죠' }] },
+  ],
+  relations: [
+    ...M.relations.map((r) =>
+      r.from === 'a10' && r.to === 'a2'
+        ? { ...r, kind: '갈등·모순' as const, label: '의견 칸은 있으나 점수 반영 미미', evidence: [{ quote: '기준표에 사서 선생님 의견 칸을 넣긴 했는데, 점수에는 거의 반영되지 않았어요' }] }
+        : r,
+    ),
+    { from: 'a12', to: 'a8', kind: '제약·조정', label: '시간표 조정', evidence: [{ quote: '블록 수업은 교감 선생님이 시간표를 바꿔 주셔서 가능했어요' }] },
+    { from: 'a3', to: 'a13', kind: '요청·활용', label: '자료를 먼저 물어봄', evidence: [{ quote: '자료는 처음에 AI 챗봇한테 물어보고' }] },
+    { from: 'a2', to: 'a13', kind: '제약·조정', label: '추천 책이 실제로 있는지 확인시킴', evidence: [{ quote: '챗봇이 알려 준 책이 실제로 있는지 확인하라고 하셔서' }] },
+    { from: 'a3', to: 'a14', kind: '요청·활용', label: '활동지로 확인 받음', evidence: [{ quote: '아이들이 활동지를 들고 도서관에 가서 사서 선생님께 확인을 받았죠' }] },
+    { from: 'a14', to: 'a2', kind: '정보·자료 흐름', label: '피드백 전달', evidence: [] },
+  ],
+  oppCandidates: [
+    { ...M.oppCandidates[0], evidence: [...M.oppCandidates[0].evidence, { quote: '공동 설계 회의를 거치지 않으면 제가 수업에 들어갈 방법이 없었어요' }] },
+    M.oppCandidates[1],
+  ],
+  blackBoxes: [{ ...M.blackBoxes[0], evidence: [...M.blackBoxes[0].evidence, { quote: '왜 이렇게 나눴는지는 새로 온 선생님들은 잘 몰라요' }] }],
+  contradictions: [
+    ...M.contradictions,
+    { label: 'AI 챗봇의 없는 책 추천', actorIds: ['a13', 'a3', 'a2'], description: '학생이 챗봇 답을 먼저 쓰면서 실제로 없는 자료가 섞임', alternative: '사서교사가 추천 자료의 실재를 확인하게 함', evidence: [{ quote: '없는 책을 두 권이나 찾아냈어요' }] },
+  ],
+  boundary: { ...M.boundary, invisibleOthers: ['데이터베이스 구독 계약', '새로 온 교사들'] },
+  changes: [
+    { kind: '확인됨', target: 'OPP 후보: 정보활용능력 중심의 공동 수업 설계', description: '[인터뷰 1] 사서교사도 공동 설계 회의를 거쳐야만 수업에 들어갈 수 있었다고 말해 1차 판단을 뒷받침합니다.', evidence: [{ quote: '공동 설계 회의를 거치지 않으면 제가 수업에 들어갈 방법이 없었어요' }] },
+    { kind: '새로 나옴', target: '교감', description: '[인터뷰 1] 1차에서 보이지 않는 타자였던 학교 관리자가 시간표를 바꾼 행위자로 드러났습니다.', evidence: [{ quote: '블록 수업은 교감 선생님이 시간표를 바꿔 주셔서 가능했어요' }] },
+    { kind: '새로 나옴', target: 'AI 챗봇', description: '[인터뷰 3] 학생이 도서관 검색시스템보다 AI 챗봇을 먼저 썼고, 없는 책 추천이라는 새 모순이 생겼습니다.', evidence: [{ quote: '자료는 처음에 AI 챗봇한테 물어보고, 나중에 출처를 찾아 붙였어요' }, { quote: '없는 책을 두 권이나 찾아냈어요' }] },
+    { kind: '달라짐', target: '학교 LMS', description: '[인터뷰 2] LMS는 제출 통로일 뿐이고, 실제 피드백은 종이 활동지로 오갔습니다.', evidence: [{ quote: 'LMS는 제출만 받는 곳이라 실제 피드백은 종이 활동지로 했어요' }] },
+    { kind: '반박됨', target: '평가 기준표 → 사서교사 관계', description: '[인터뷰 2·1] 1차는 기준표가 평가 참여 갈등을 조정했다고 보았지만, 의견 칸이 점수에 거의 반영되지 않아 갈등이 남아 있습니다.', evidence: [{ quote: '기준표에 사서 선생님 의견 칸을 넣긴 했는데, 점수에는 거의 반영되지 않았어요' }, { quote: '아이들은 출처 표기를 숙제처럼만 여겼어요' }] },
+  ],
+};
+
+export const mockGenerate: GenerateFn = async ({ prompt }) => {
   await new Promise((r) => setTimeout(r, 600));
-  return JSON.stringify(MOCK_ANALYSIS);
+  return JSON.stringify(prompt.includes('[1차 분석 결과]') ? MOCK_FOLLOWUP : MOCK_ANALYSIS);
 };

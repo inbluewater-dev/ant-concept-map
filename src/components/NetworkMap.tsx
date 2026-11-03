@@ -9,11 +9,13 @@ interface Props {
   showOpp: boolean;
   selected: string | null;
   onSelect: (id: string | null) => void;
+  /** 2차 분석에서 새로 나온 행위자 — 노드 오른쪽 위에 ‘새’ 표시 */
+  newIds?: string[];
 }
 
 const R = 26;
 
-export const NetworkMap = forwardRef<SVGSVGElement, Props>(function NetworkMap({ analysis, showOpp, selected, onSelect }, ref) {
+export const NetworkMap = forwardRef<SVGSVGElement, Props>(function NetworkMap({ analysis, showOpp, selected, onSelect, newIds = [] }, ref) {
   const initial = useMemo(() => layoutNetwork(analysis, showOpp), [analysis, showOpp]);
   const [pos, setPos] = useState<Record<string, Pos>>(initial);
   useEffect(() => setPos(initial), [initial]);
@@ -175,6 +177,14 @@ export const NetworkMap = forwardRef<SVGSVGElement, Props>(function NetworkMap({
             <text y={5} fontSize={11} textAnchor="middle" fill={c} fontWeight={700}>
               {a.nature === '인간' ? '인간' : '비인간'}
             </text>
+            {newIds.includes(a.id) && (
+              <g transform={`translate(${R - 2},${-R + 2})`} data-testid={`new-${a.id}`}>
+                <circle r={10} fill="#4338ca" stroke="#fff" strokeWidth={2} />
+                <text y={4} fontSize={10} textAnchor="middle" fill="#fff" fontWeight={700}>
+                  새
+                </text>
+              </g>
+            )}
             {lines.map((l, j) => (
               <text key={j} y={R + 16 + j * 14} fontSize={13} textAnchor="middle" fill="#0f172a" fontWeight={600} stroke="#fff" strokeWidth={3} paintOrder="stroke">
                 {l}
@@ -207,7 +217,7 @@ export const NetworkMap = forwardRef<SVGSVGElement, Props>(function NetworkMap({
           </g>
         ))}
         <text y={50} fill="#64748b">
-          ○ 인간 행위자 · □ 비인간 행위자 (같은 크기로 그림: 대칭성){showOpp && analysis.oppCandidates.length ? ' · ■ OPP 후보(자료에서 확인한 관문, 점선=그 관문을 지나는 행위자)' : ''}
+          ○ 인간 행위자 · □ 비인간 행위자 (같은 크기로 그림: 대칭성){newIds.length ? ' · 새 = 2차 분석에서 새로 나온 행위자' : ''}{showOpp && analysis.oppCandidates.length ? ' · ■ OPP 후보(자료에서 확인한 관문, 점선=그 관문을 지나는 행위자)' : ''}
         </text>
       </g>
     </svg>
