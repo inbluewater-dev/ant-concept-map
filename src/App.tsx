@@ -32,7 +32,9 @@ const stageLabel = (r: SavedRun) => ((r.stage ?? 1) > 1 ? `[${r.stage}차] ` : '
 async function readText(f: File, onBusy: (s: string) => void): Promise<string> {
   if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') {
     onBusy('PDF에서 글자를 읽는 중…');
-    const { pdfToText } = await import('./lib/pdf');
+    const { pdfToText } = await import('./lib/pdf').catch(() => {
+      throw new Error('사이트가 새 버전으로 바뀌었습니다. 새로고침(F5)한 뒤 다시 넣어 주세요.');
+    });
     const text = await pdfToText(f, (p, n) => onBusy(`PDF에서 글자를 읽는 중… (${p}/${n}쪽)`));
     if (text.replace(/\s/g, '').length < 100) throw new Error('PDF에서 글자를 거의 읽지 못했습니다. 스캔한 그림 PDF일 수 있습니다. 글을 복사해 붙여 넣어 주세요.');
     return text;
@@ -42,7 +44,13 @@ async function readText(f: File, onBusy: (s: string) => void): Promise<string> {
 }
 
 async function generator(): Promise<GenerateFn> {
-  return config.aiMode === 'gemini' ? (await import('./lib/ai/gemini')).geminiGenerate : mockGenerate;
+  if (config.aiMode !== 'gemini') return mockGenerate;
+  try {
+    return (await import('./lib/ai/gemini')).geminiGenerate;
+  } catch {
+    // 페이지를 연 뒤 사이트가 새 버전으로 배포되면 예전 파일을 못 찾는다
+    throw new Error('사이트가 새 버전으로 바뀌었습니다. 새로고침(F5)한 뒤 다시 눌러 주세요.');
+  }
 }
 
 const btn = 'inline-flex items-center justify-center rounded-md px-3.5 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50';
