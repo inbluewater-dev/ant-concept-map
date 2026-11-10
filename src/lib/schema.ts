@@ -5,6 +5,34 @@ import { z } from 'zod';
 
 export const ACTOR_TYPES = ['인간', '조직·기관', '자료·도구', '기술·시스템', '제도·규범', '물리 환경', '기타'] as const;
 export const RELATION_KINDS = ['협력·지원', '정보·자료 흐름', '요청·활용', '제약·조정', '갈등·모순'] as const;
+
+/** 관계 종류 — 연구자가 현상에 맞게 고치거나 더하거나 뺄 수 있다(11/4 수업: "관계 설정을 지정해서 주면 된다") */
+export interface RelationKindDef {
+  name: string;
+  description: string;
+}
+export const DEFAULT_RELATION_KINDS: RelationKindDef[] = [
+  { name: '협력·지원', description: '함께 일하거나 돕는 관계' },
+  { name: '정보·자료 흐름', description: '정보·자료·데이터가 오가는 관계' },
+  { name: '요청·활용', description: '한쪽이 다른 쪽에 요청하거나 도구로 쓰는 관계' },
+  { name: '제약·조정', description: '한쪽이 다른 쪽의 행동을 제한하거나 조정하는 관계' },
+  { name: '갈등·모순', description: '목표나 이해가 부딪히는 관계' },
+];
+export const MIN_RELATION_KINDS = 2;
+export const MAX_RELATION_KINDS = 10;
+
+/** 쓸 수 있는 관계 종류만 남긴다: 이름 앞뒤 공백 제거, 빈 이름·같은 이름 빼기, 최대 개수 */
+export function cleanKinds(kinds: RelationKindDef[]): RelationKindDef[] {
+  const seen = new Set<string>();
+  const out: RelationKindDef[] = [];
+  for (const k of kinds) {
+    const name = k.name.trim().slice(0, 20);
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, description: k.description.trim().slice(0, 80) });
+  }
+  return out.slice(0, MAX_RELATION_KINDS);
+}
 /** 칼롱의 번역 4계기 + 동원 = 수업 자료의 5단계 표 */
 export const TRANSLATION_STAGES = ['문제 제기', 'OPP 설정', '관심 유도', '등록', '동원'] as const;
 export const CONFIDENCE = ['높음', '보통', '낮음'] as const;
@@ -28,7 +56,7 @@ export const Actor = z.object({
 export const Relation = z.object({
   from: text,
   to: text,
-  kind: z.enum(RELATION_KINDS),
+  kind: text,
   label: text,
   evidence: z.array(Evidence),
 });
@@ -81,6 +109,14 @@ export const Change = z.object({
 });
 export const FollowupAnalysis = AntAnalysis.extend({ changes: z.array(Change) });
 
+/** AI 응답용 스키마: 관계 종류를 연구자가 정한 목록으로 묶는다 */
+export function analysisSchemas(kinds: RelationKindDef[]) {
+  const names = cleanKinds(kinds).map((k) => k.name) as [string, ...string[]];
+  const Rel = Relation.extend({ kind: z.enum(names) });
+  const analysis = AntAnalysis.extend({ relations: z.array(Rel) });
+  return { analysis, followup: analysis.extend({ changes: z.array(Change) }) };
+}
+
 export type Evidence = z.infer<typeof Evidence>;
 export type Change = z.infer<typeof Change>;
 export type ChangeKind = (typeof CHANGE_KINDS)[number];
@@ -93,7 +129,7 @@ export type BlackBox = z.infer<typeof BlackBox>;
 export type Contradiction = z.infer<typeof Contradiction>;
 export type AntAnalysis = z.infer<typeof AntAnalysis>;
 export type ActorType = (typeof ACTOR_TYPES)[number];
-export type RelationKind = (typeof RELATION_KINDS)[number];
+export type RelationKind = string;
 
 /** 응답 정리: 없는 행위자를 가리키는 관계·ID를 빼고, 번역 단계를 표 순서로 맞춘다 */
 export function tidy(a: AntAnalysis): AntAnalysis {

@@ -1,7 +1,7 @@
 // ① 행위자 네트워크도 — 색=행위자 유형, 모양=인간(원)/비인간(사각형, 같은 크기: 대칭성), 선=관계 유형, 갈등은 빨간 점선
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
 import { layoutNetwork, MAP_H, MAP_W, wrap, type Pos } from '../lib/layout';
-import { RELATION_STYLE, TYPE_COLOR } from '../lib/palette';
+import { TYPE_COLOR, kindOrder, relationStyle } from '../lib/palette';
 import { ACTOR_TYPES, RELATION_KINDS, type AntAnalysis } from '../lib/schema';
 
 interface Props {
@@ -11,11 +11,13 @@ interface Props {
   onSelect: (id: string | null) => void;
   /** 2차 분석에서 새로 나온 행위자 — 노드 오른쪽 위에 ‘새’ 표시 */
   newIds?: string[];
+  /** 연구자가 정한 관계 종류 순서(색을 고정하려고) */
+  relationKinds?: readonly string[];
 }
 
 const R = 26;
 
-export const NetworkMap = forwardRef<SVGSVGElement, Props>(function NetworkMap({ analysis, showOpp, selected, onSelect, newIds = [] }, ref) {
+export const NetworkMap = forwardRef<SVGSVGElement, Props>(function NetworkMap({ analysis, showOpp, selected, onSelect, newIds = [], relationKinds = RELATION_KINDS }, ref) {
   const initial = useMemo(() => layoutNetwork(analysis, showOpp), [analysis, showOpp]);
   const [pos, setPos] = useState<Record<string, Pos>>(initial);
   useEffect(() => setPos(initial), [initial]);
@@ -63,7 +65,25 @@ export const NetworkMap = forwardRef<SVGSVGElement, Props>(function NetworkMap({
     return { x1: a.x + (dx / d) * pad, y1: a.y + (dy / d) * pad, x2: b.x - (dx / d) * pad, y2: b.y - (dy / d) * pad };
   };
   const usedTypes = ACTOR_TYPES.filter((t) => analysis.actors.some((a) => a.type === t));
-  const usedKinds = RELATION_KINDS.filter((k) => analysis.relations.some((r) => r.kind === k));
+  const order = kindOrder(analysis.relations, relationKinds);
+  const usedKinds = order.filter((k) => analysis.relations.some((r) => r.kind === k));
+  const st = (k: string) => relationStyle(k, order);
+  // 범례: 관계 종류 이름 길이에 맞춰 놓고, 넘치면 다음 줄로
+  const legendKinds: { k: string; x: number; row: number }[] = [];
+  {
+    let x = 78;
+    let row = 0;
+    for (const k of usedKinds) {
+      const w = 40 + k.length * 12;
+      if (x + w > MAP_W - 30 && x > 78) {
+        row += 1;
+        x = 78;
+      }
+      legendKinds.push({ k, x, row });
+      x += w;
+    }
+  }
+  const kindRows = legendKinds.length ? legendKinds[legendKinds.length - 1].row + 1 : 1;
 
   return (
     <svg
@@ -83,9 +103,9 @@ export const NetworkMap = forwardRef<SVGSVGElement, Props>(function NetworkMap({
       fontFamily="Pretendard, 'Noto Sans KR', 'Malgun Gothic', sans-serif"
     >
       <defs>
-        {RELATION_KINDS.map((k) => (
-          <marker key={k} id={`arr-${RELATION_KINDS.indexOf(k)}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill={RELATION_STYLE[k].color} />
+        {order.map((k, i) => (
+          <marker key={k} id={`arr-${i}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill={st(k).color} />
           </marker>
         ))}
         <marker id="arr-opp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -105,16 +125,16 @@ export const NetworkMap = forwardRef<SVGSVGElement, Props>(function NetworkMap({
         const a = pos[r.from];
         const b = pos[r.to];
         if (!a || !b) return null;
-        const st = RELATION_STYLE[r.kind];
+        const ls = st(r.kind);
         const e = edge(a, b);
         const op = related ? (related.has(r.from) && related.has(r.to) && (r.from === selected || r.to === selected) ? 1 : 0.12) : 0.85;
         return (
           <g key={i} opacity={op}>
-            <line {...e} stroke={st.color} strokeWidth={2} strokeDasharray={st.dash} markerEnd={`url(#arr-${RELATION_KINDS.indexOf(r.kind)})`}>
+            <line {...e} stroke={ls.color} strokeWidth={2} strokeDasharray={ls.dash} markerEnd={`url(#arr-${order.indexOf(r.kind)})`}>
               <title>{`${r.kind}: ${r.label}`}</title>
             </line>
             {selected && (r.from === selected || r.to === selected) && (
-              <text x={(e.x1 + e.x2) / 2} y={(e.y1 + e.y2) / 2 - 4} fontSize={11} textAnchor="middle" fill={st.color} stroke="#fff" strokeWidth={3} paintOrder="stroke">
+              <text x={(e.x1 + e.x2) / 2} y={(e.y1 + e.y2) / 2 - 4} fontSize={11} textAnchor="middle" fill={ls.color} stroke="#fff" strokeWidth={3} paintOrder="stroke">
                 {r.label}
               </text>
             )}
@@ -195,7 +215,7 @@ export const NetworkMap = forwardRef<SVGSVGElement, Props>(function NetworkMap({
       })}
 
       {/* 범례 */}
-      <g transform={`translate(20, ${MAP_H - 70})`} fontSize={11} fill="#334155">
+      <g transform={`translate(20, ${MAP_H - 70 - (kindRows - 1) * 18})`} fontSize={11} fill="#334155">
         <text fontWeight={700}>행위자 유형</text>
         {usedTypes.map((t, i) => (
           <g key={t} transform={`translate(${78 + i * 92}, -4)`}>
@@ -208,15 +228,15 @@ export const NetworkMap = forwardRef<SVGSVGElement, Props>(function NetworkMap({
         <text y={26} fontWeight={700}>
           관계
         </text>
-        {usedKinds.map((k, i) => (
-          <g key={k} transform={`translate(${78 + i * 118}, 22)`}>
-            <line x1={0} x2={26} stroke={RELATION_STYLE[k].color} strokeWidth={2} strokeDasharray={RELATION_STYLE[k].dash} />
+        {legendKinds.map(({ k, x, row }) => (
+          <g key={k} transform={`translate(${x}, ${22 + row * 18})`}>
+            <line x1={0} x2={26} stroke={st(k).color} strokeWidth={2} strokeDasharray={st(k).dash} />
             <text x={31} y={4}>
               {k}
             </text>
           </g>
         ))}
-        <text y={50} fill="#64748b">
+        <text y={50 + (kindRows - 1) * 18} fill="#64748b">
           ○ 인간 행위자 · □ 비인간 행위자 (같은 크기로 그림: 대칭성){newIds.length ? ' · 새 = 2차 분석에서 새로 나온 행위자' : ''}{showOpp && analysis.oppCandidates.length ? ' · ■ OPP 후보(자료에서 확인한 관문, 점선=그 관문을 지나는 행위자)' : ''}
         </text>
       </g>

@@ -1,5 +1,5 @@
 // AI에게 주는 지시문 — ANT 개념 정의와 분석 규칙(특히 OPP 판정 원칙)을 담는다
-import { ACTOR_TYPES, RELATION_KINDS, TRANSLATION_STAGES, type AntAnalysis } from './schema';
+import { ACTOR_TYPES, DEFAULT_RELATION_KINDS, TRANSLATION_STAGES, cleanKinds, type AntAnalysis, type RelationKindDef } from './schema';
 
 export const MAX_SOURCE_CHARS = 120_000;
 
@@ -15,7 +15,12 @@ const CONCEPTS = `[개념 정의]
 - 모순: 네트워크 안의 갈등·불일치·저항. 대안은 그 모순을 다시 잇는 방법.
 `;
 
-const rules = (quoteFrom: string) => `[반드시 지킬 규칙]
+const kindsBlock = (kinds: RelationKindDef[]) =>
+  `[관계 종류 — 연구자가 정한 것. relation.kind는 이 이름 중 하나만 쓴다]
+${cleanKinds(kinds).map((k) => `- ${k.name}${k.description ? `: ${k.description}` : ''}`).join('\n')}
+`;
+
+const rules = (quoteFrom: string, kinds: RelationKindDef[]) => `[반드시 지킬 규칙]
 1. 자료에 근거한 것만 쓴다. 자료에 없는 사실·사례·수치를 지어내지 않는다.
 2. 모든 evidence.quote는 ${quoteFrom}에서 그대로 복사한 연속된 문장 또는 구절이다(15~120자). 고쳐 쓰거나 요약하지 않는다. 근거가 없으면 evidence를 빈 배열로 둔다.
 3. OPP는 "중요해 보이는 것"이나 "네트워크 가운데 있는 것"이 아니다. 분석자가 임의로 지정하지 않는다. 각 후보마다 어떤 행위자들이 각자 어떤 목표를 이루기 위해 그 관문을 거쳐야 하는지 reasoning에 쓴다. 자료가 그 관계를 직접 보여 주지 않으면 confidence를 "낮음"으로 한다. 후보는 0~3개.
@@ -27,18 +32,19 @@ const rules = (quoteFrom: string) => `[반드시 지킬 규칙]
    - 모든 행위자는 관계(relations)에 한 번 이상 나와야 한다. 관계를 찾을 수 없는 행위자는 넣지 않는다.
    - 자료를 쓴 연구자·저자(이름 포함)·분석자 자신은 사례 속에 직접 등장하지 않는 한 행위자로 넣지 않는다.
    - 모순(contradictions)과 블랙박스는 자료에서 확인되는 것을 모두 쓴다(각 0~5개). 하나만 쓰고 멈추지 않는다.
-7. actor.type은 ${ACTOR_TYPES.join(' / ')} 중 하나, nature는 "인간" 또는 "비인간". relation.kind는 ${RELATION_KINDS.join(' / ')} 중 하나이며 갈등은 "갈등·모순"으로 표시한다.
+7. actor.type은 ${ACTOR_TYPES.join(' / ')} 중 하나, nature는 "인간" 또는 "비인간". relation.kind는 [관계 종류]의 이름(${cleanKinds(kinds).map((k) => k.name).join(' / ')}) 중 설명에 가장 맞는 하나다. 어느 종류에도 맞지 않는 관계는 넣지 않는다.
 8. boundary에는 이 분석이 네트워크를 어디서 끊었는지(포함한 것/뺀 것)와, 자료에 드러나지 않지만 영향을 받거나 주는 "보이지 않는 타자"를 쓴다.
 9. 모든 설명은 한국어로, 짧고 분명하게 쓴다.
 `;
 
 const focusBlock = (focus: string) => (focus.trim() ? `\n[분석 초점 — 사용자 요청]\n${focus.trim()}\n` : '');
 
-export function buildPrompt(source: string, focus: string): string {
+export function buildPrompt(source: string, focus: string, kinds: RelationKindDef[] = DEFAULT_RELATION_KINDS): string {
   return `[역할] 당신은 행위자 네트워크 이론(Actor-Network Theory, ANT)으로 자료를 분석하는 연구 보조자입니다. 아래 [자료]를 읽고 ANT 개념도를 그릴 수 있게 정리합니다.
 
 ${CONCEPTS}
-${rules('[자료]')}${focusBlock(focus)}
+${kindsBlock(kinds)}
+${rules('[자료]', kinds)}${focusBlock(focus)}
 [출력] 지정된 JSON 스키마만 출력한다.
 
 [자료]
@@ -51,7 +57,7 @@ export interface InterviewDoc {
 }
 
 /** 2차 분석: 1차 결과(근거 인용은 뺌) + 원 자료 + 인터뷰들 → 고친 분석 + 변화 목록 */
-export function buildFollowupPrompt(prev: AntAnalysis, source: string, interviews: InterviewDoc[], focus: string): string {
+export function buildFollowupPrompt(prev: AntAnalysis, source: string, interviews: InterviewDoc[], focus: string, kinds: RelationKindDef[] = DEFAULT_RELATION_KINDS): string {
   const strip = (a: AntAnalysis) => ({
     ...a,
     actors: a.actors.map(({ evidence: _e, ...x }) => x),
@@ -66,7 +72,8 @@ export function buildFollowupPrompt(prev: AntAnalysis, source: string, interview
   return `[역할] 당신은 행위자 네트워크 이론(Actor-Network Theory, ANT)으로 자료를 분석하는 연구 보조자입니다. [1차 분석 결과]는 [원 자료]만 보고 만든 것입니다. 이번에는 행위자들의 실제 목소리인 ${labels}를 더해 1차 분석을 다시 검토하고 고친 2차 분석을 만듭니다.
 
 ${CONCEPTS}
-${rules(`[원 자료] 또는 ${labels}`)}
+${kindsBlock(kinds)}
+${rules(`[원 자료] 또는 ${labels}`, kinds)}
 [2차 분석 규칙]
 10. 1차 결과의 행위자 id와 이름을 그대로 유지한다. 인터뷰에서 새로 드러난 행위자는 a${maxId + 1}부터 이어서 번호를 붙인다. 인터뷰가 반박하지 않는 1차 항목은 지우지 않는다.
 11. 인터뷰는 말한 사람 한 명의 관점이다. 인터뷰 하나만으로 OPP를 확정하지 않는다. 여러 인터뷰가 같은 관문을 말할 때 confidence를 올리고, 인터뷰끼리 어긋나면 모순(contradictions)에 쓴다.

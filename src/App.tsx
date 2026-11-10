@@ -1,7 +1,9 @@
 // ANT 개념도 생성기 — 자료 입력 → AI 분석 → 개념도 3장 + 근거 표 → (인터뷰를 더해) 2차 분석
 import { useMemo, useRef, useState } from 'react';
 import { ChangesView } from './components/Changes';
+import { ActorPanel } from './components/ActorPanel';
 import { ContradictionMap } from './components/ContradictionMap';
+import { RelationKindsEditor } from './components/RelationKinds';
 import { Details } from './components/Details';
 import { evidenceStats } from './components/Evidence';
 import { NetworkMap } from './components/NetworkMap';
@@ -11,11 +13,13 @@ import { mockGenerate } from './lib/ai/mock';
 import { config } from './lib/config';
 import { downloadBlob, safeName, svgString, svgToPng } from './lib/download';
 import { compare } from './lib/compare';
+import { kindOrder } from './lib/palette';
 import { SourceIndex } from './lib/evidence';
 import { MAX_INTERVIEW_CHARS, MAX_SOURCE_CHARS, type InterviewDoc } from './lib/prompt';
 import { SAMPLE_INTERVIEWS, SAMPLE_SOURCE, SAMPLE_TITLE } from './lib/sample';
 import type { AntAnalysis } from './lib/schema';
-import { loadHistory, removeRun, saveRun, type SavedRun } from './lib/storage';
+import { loadHistory, loadKinds, removeRun, saveKinds, saveRun, type SavedRun } from './lib/storage';
+import { DEFAULT_RELATION_KINDS, MIN_RELATION_KINDS, cleanKinds, type RelationKindDef } from './lib/schema';
 
 type Tab = 'network' | 'translation' | 'contradiction' | 'details' | 'changes';
 const TABS: { id: Tab; label: string }[] = [
@@ -71,6 +75,12 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [interviews, setInterviews] = useState<InterviewDoc[]>([]);
   const [draft, setDraft] = useState('');
+  const [kinds, setKindsState] = useState<RelationKindDef[]>(() => loadKinds() ?? DEFAULT_RELATION_KINDS.map((k) => ({ ...k })));
+  const setKinds = (k: RelationKindDef[]) => {
+    setKindsState(k);
+    saveKinds(k);
+  };
+  const usableKinds = cleanKinds(kinds);
   const svgs = { network: useRef<SVGSVGElement>(null), translation: useRef<SVGSVGElement>(null), contradiction: useRef<SVGSVGElement>(null) };
 
   const index = useMemo(
@@ -81,6 +91,7 @@ export default function App() {
   const comparison = useMemo(() => (run?.prevAnalysis && run.analysis ? compare(run.prevAnalysis, run.analysis) : null), [run]);
   const parent = run?.parentId ? history.find((h) => h.id === run.parentId) ?? null : null;
   const tabs = TABS.filter((t) => t.id !== 'changes' || run?.changes);
+  const runKindNames = (run?.relationKinds ?? DEFAULT_RELATION_KINDS).map((k) => k.name);
   const interviewChars = interviews.reduce((n, d) => n + d.text.length, 0);
   const stats = useMemo(() => {
     if (!analysis) return null;
@@ -134,8 +145,8 @@ export default function App() {
     setError(null);
     setBusy('AI가 자료를 분석하는 중… (긴 논문은 1분쯤 걸립니다)');
     try {
-      const res = await runAnalysis(await generator(), { source: source.slice(0, MAX_SOURCE_CHARS), focus, model }, { onStatus: (s) => setBusy(s) });
-      const saved: SavedRun = { id: String(Date.now()), createdAt: new Date().toISOString(), sourceName: sourceName || '붙여 넣은 글', source, focus, model: config.aiMode === 'gemini' ? res.model : 'mock', analysis: res.analysis };
+      const res = await runAnalysis(await generator(), { source: source.slice(0, MAX_SOURCE_CHARS), focus, model, relationKinds: usableKinds }, { onStatus: (s) => setBusy(s) });
+      const saved: SavedRun = { id: String(Date.now()), createdAt: new Date().toISOString(), sourceName: sourceName || '붙여 넣은 글', source, focus, model: config.aiMode === 'gemini' ? res.model : 'mock', analysis: res.analysis, relationKinds: usableKinds };
       setRun(saved);
       setHistory(saveRun(saved));
       setSelected(null);
@@ -159,7 +170,8 @@ export default function App() {
         left -= text.length;
         return { ...d, text };
       });
-      const res = await runFollowup(await generator(), { prev: run.analysis, source: run.source.slice(0, MAX_SOURCE_CHARS), interviews: docs, focus, model }, { onStatus: (s) => setBusy(s) });
+      const runKinds = run.relationKinds ?? DEFAULT_RELATION_KINDS;
+      const res = await runFollowup(await generator(), { prev: run.analysis, source: run.source.slice(0, MAX_SOURCE_CHARS), interviews: docs, focus, model, relationKinds: runKinds }, { onStatus: (s) => setBusy(s) });
       const saved: SavedRun = {
         id: String(Date.now()),
         createdAt: new Date().toISOString(),
@@ -168,6 +180,7 @@ export default function App() {
         focus,
         model: config.aiMode === 'gemini' ? res.model : 'mock',
         analysis: res.analysis,
+        relationKinds: runKinds,
         stage: (run.stage ?? 1) + 1,
         parentId: run.id,
         prevAnalysis: run.analysis,
@@ -203,14 +216,14 @@ export default function App() {
   return (
     <div className="min-h-screen">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-4">
+        <div className="mx-auto flex max-w-[100rem] flex-wrap items-baseline gap-x-4 gap-y-1 px-4 py-4">
           <h1 className="text-lg font-bold">ANT 개념도 생성기</h1>
           <p className="text-sm text-slate-600">자료를 넣으면 행위자 네트워크 이론으로 행위자·네트워크·번역·OPP·블랙박스·모순을 찾아 개념도로 그립니다.</p>
         </div>
         {config.aiMode === 'mock' && <div className="bg-amber-50 px-4 py-1 text-center text-xs text-amber-900">샘플 모드 — 실제 AI 대신 고정된 예시 결과를 보여 줍니다</div>}
       </header>
 
-      <main className="mx-auto grid max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
+      <main className="mx-auto grid max-w-[100rem] gap-6 px-4 py-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
         <aside className="space-y-5">
           <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
             <h2 className="font-semibold">1. 자료 넣기</h2>
@@ -284,7 +297,8 @@ export default function App() {
                 </select>
               </label>
             )}
-            <button type="button" className={`${primary} w-full`} disabled={!!busy || source.trim().length < 50} onClick={analyze}>
+            <RelationKindsEditor kinds={kinds} onChange={setKinds} />
+            <button type="button" className={`${primary} w-full`} disabled={!!busy || source.trim().length < 50 || usableKinds.length < MIN_RELATION_KINDS} onClick={analyze}>
               {busy ? '분석 중…' : '개념도 만들기'}
             </button>
             {busy && (
@@ -305,7 +319,7 @@ export default function App() {
               <h2 id="followup-h" className="font-semibold">
                 3. {(run.stage ?? 1) + 1}차 분석: 인터뷰 더하기
               </h2>
-              <p className="text-sm text-slate-600">지금 보고 있는 결과에 행위자들의 실제 인터뷰를 더해, 무엇이 확인되고 새로 나오고 달라졌는지 다시 분석합니다.</p>
+              <p className="text-sm text-slate-600">지금 보고 있는 결과에 행위자들의 실제 인터뷰를 더해, 무엇이 확인되고 새로 나오고 달라졌는지 다시 분석합니다. 관계 종류는 앞 분석과 같은 것({(run.relationKinds ?? DEFAULT_RELATION_KINDS).length}개)을 씁니다.</p>
               <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">인터뷰는 이름·학교·연락처를 지우고 ‘담당 교사 A’처럼 바꾼 뒤 넣으세요. 무료 등급 AI로 보낸 내용은 Google 제품 개선에 쓰일 수 있습니다.</p>
               <label className="block">
                 <span className="text-sm text-slate-600">인터뷰 파일 (PDF·TXT·MD, 여러 개 가능)</span>
@@ -449,25 +463,15 @@ export default function App() {
               </div>
 
               {tab === 'network' && (
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
-                    <input type="checkbox" checked={showOpp} onChange={() => setShowOpp(!showOpp)} /> OPP 후보 함께 보기
-                  </label>
-                  <NetworkMap ref={svgs.network} analysis={analysis} showOpp={showOpp} selected={selected} onSelect={setSelected} newIds={comparison?.newActorIds} />
-                  <p className="text-xs text-slate-500">노드를 끌어 옮길 수 있습니다. 노드를 누르면 연결된 관계만 강조됩니다.</p>
-                  {selected && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm" data-testid="selected-actor">
-                      {(() => {
-                        const x = analysis.actors.find((a) => a.id === selected)!;
-                        return (
-                          <>
-                            <span className="font-semibold">{x.name}</span> <span className="text-slate-500">({x.nature} · {x.type})</span> — {x.role}
-                            {x.goal && <span className="block text-slate-600">목표: {x.goal}</span>}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  )}
+                <div className={selected ? 'grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]' : ''}>
+                  <div className="min-w-0 space-y-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input type="checkbox" checked={showOpp} onChange={() => setShowOpp(!showOpp)} /> OPP 후보 함께 보기
+                    </label>
+                    <NetworkMap ref={svgs.network} analysis={analysis} showOpp={showOpp} selected={selected} onSelect={setSelected} newIds={comparison?.newActorIds} relationKinds={runKindNames} />
+                    <p className="text-xs text-slate-500">노드를 누르면 연결된 관계가 강조되고, 그 판단이 원문 어디에서 나왔는지 옆에 보입니다. 노드는 끌어 옮길 수 있습니다.</p>
+                  </div>
+                  {selected && <ActorPanel analysis={analysis} actorId={selected} index={index} kindOrder={kindOrder(analysis.relations, runKindNames)} isNew={comparison?.newActorIds.includes(selected)} onSelect={setSelected} />}
                 </div>
               )}
               {tab === 'translation' && <TranslationMap ref={svgs.translation} analysis={analysis} />}
@@ -487,7 +491,7 @@ export default function App() {
         </section>
       </main>
 
-      <footer className="mx-auto max-w-7xl px-4 pb-8 text-xs text-slate-500">
+      <footer className="mx-auto max-w-[100rem] px-4 pb-8 text-xs text-slate-500">
         AI 분석 결과는 초안입니다. 특히 OPP·블랙박스는 연구자가 자료로 다시 확인해야 합니다. · 참고: 이효순(2025), 「교육정책 실행 분석 방법론으로서의 행위자-네트워크이론(ANT)의 가능성 탐색」, 『교육비평』 57호.
       </footer>
     </div>

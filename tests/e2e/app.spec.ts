@@ -99,3 +99,56 @@ test('2차 분석: 예시 인터뷰를 더하면 변화 탭과 새 행위자 표
   await expect(page.getByRole('heading', { name: '(샘플) 고등학교 도서관협력수업의 행위자 네트워크' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^\[2차\]/ })).toBeVisible();
 });
+
+test('노드를 누르면 원문 근거가 문맥과 함께 옆에 나온다', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('/');
+  await page.getByRole('button', { name: '예시 자료 넣기' }).click();
+  await page.getByRole('button', { name: '개념도 만들기' }).click();
+  await page.getByTestId('node-a8').click();
+  const panel = page.getByTestId('selected-actor');
+  await expect(panel.getByText('시간표', { exact: true })).toBeVisible();
+  await expect(panel.getByText('이 행위자가 나온 원문 (1)')).toBeVisible();
+  await expect(panel.locator('mark').first()).toHaveText('시간표가 두 교사의 협력을 제약했다');
+  await expect(panel.getByText(/연결된 관계 \(\d+\)/)).toBeVisible();
+  await expect(panel.getByText('OPP 후보')).toHaveCount(0);
+  await expect(panel.getByText('모순', { exact: true }).first()).toBeVisible();
+  // 지도와 패널이 나란히
+  const mapBox = (await page.getByRole('img', { name: '행위자 네트워크도' }).boundingBox())!;
+  const panelBox = (await panel.boundingBox())!;
+  expect(panelBox.x).toBeGreaterThan(mapBox.x + mapBox.width - 5);
+  await page.screenshot({ path: 'test-results/06-actor-panel.png' });
+  // 관계의 상대 행위자를 누르면 그 행위자로 넘어간다
+  await panel.getByRole('button', { name: '교과교사' }).click();
+  await expect(panel.getByText('교과교사', { exact: true }).first()).toBeVisible();
+  await expect(panel.getByText('주제 선정과 평가', { exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: '닫기' }).click();
+  await expect(page.getByTestId('selected-actor')).toHaveCount(0);
+});
+
+test('관계 종류를 직접 정하면 그 종류로만 그린다', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '예시 자료 넣기' }).click();
+  const box = page.getByTestId('relation-kinds');
+  await expect(box).toContainText('관계 종류 5개 (기본)');
+  await box.locator('summary').click();
+  await page.getByLabel('관계 종류 1 이름').fill('권력·통제');
+  await page.getByLabel('관계 종류 1 뜻').fill('한쪽이 다른 쪽의 행동을 정하는 관계');
+  await page.getByRole('button', { name: '관계 종류 2 빼기' }).click();
+  await page.getByRole('button', { name: '종류 더하기' }).click();
+  await page.getByLabel('관계 종류 5 이름').fill('돌봄');
+  await expect(box).toContainText('관계 종류 5개 (직접 정함)');
+  await page.screenshot({ path: 'test-results/07-kinds-editor.png', fullPage: true });
+  await page.getByRole('button', { name: '개념도 만들기' }).click();
+  const net = page.getByRole('img', { name: '행위자 네트워크도' });
+  await expect(net.getByText('권력·통제', { exact: true })).toBeVisible();
+  await expect(net.getByText('정보·자료 흐름', { exact: true })).toHaveCount(0);
+  await expect(net.getByText('협력·지원', { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/08-custom-kinds-map.png', fullPage: true });
+  // 새로고침해도 정한 종류가 남고, 되돌리기가 된다
+  await page.reload();
+  await expect(page.getByTestId('relation-kinds')).toContainText('권력·통제');
+  await page.getByTestId('relation-kinds').locator('summary').click();
+  await page.getByRole('button', { name: '기본 다섯으로 되돌리기' }).click();
+  await expect(page.getByTestId('relation-kinds')).toContainText('관계 종류 5개 (기본)');
+});

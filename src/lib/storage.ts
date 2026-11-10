@@ -1,6 +1,6 @@
 // 이 브라우저에만 남는 최근 분석 기록 (최대 10개)
 import type { InterviewDoc } from './prompt';
-import { AntAnalysis, type Change } from './schema';
+import { AntAnalysis, type Change, type RelationKindDef } from './schema';
 
 export interface SavedRun {
   id: string;
@@ -10,6 +10,8 @@ export interface SavedRun {
   focus: string;
   model: string;
   analysis: AntAnalysis;
+  /** 이 분석에 쓴 관계 종류(없으면 기본 다섯) */
+  relationKinds?: RelationKindDef[];
   /** 2차 이상 분석일 때: 몇 차인지, 바탕이 된 앞 분석, 더한 인터뷰, AI가 정리한 변화 */
   stage?: number;
   parentId?: string;
@@ -54,4 +56,26 @@ export function removeRun(id: string): SavedRun[] {
     /* 무시 */
   }
   return next;
+}
+
+const KINDS_KEY = 'ant-concept-map:relationKinds';
+
+/** 연구자가 마지막으로 정한 관계 종류(이 브라우저에만) */
+export function loadKinds(): RelationKindDef[] | null {
+  try {
+    const raw = localStorage.getItem(KINDS_KEY);
+    if (!raw) return null;
+    const xs = JSON.parse(raw) as RelationKindDef[];
+    return Array.isArray(xs) && xs.every((k) => typeof k?.name === 'string') ? xs.map((k) => ({ name: k.name, description: String(k.description ?? '') })) : null;
+  } catch {
+    return null;
+  }
+}
+export function saveKinds(kinds: RelationKindDef[] | null): void {
+  try {
+    if (kinds) localStorage.setItem(KINDS_KEY, JSON.stringify(kinds));
+    else localStorage.removeItem(KINDS_KEY);
+  } catch {
+    /* 저장이 막혀도 이번 화면에서는 그대로 쓴다 */
+  }
 }

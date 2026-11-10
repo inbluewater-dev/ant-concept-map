@@ -117,7 +117,22 @@ export const MOCK_FOLLOWUP: FollowupAnalysis = {
   ],
 };
 
-export const mockGenerate: GenerateFn = async ({ prompt }) => {
+/** 연구자가 관계 종류를 바꿨으면 샘플 결과의 관계 종류를 그 목록으로 옮겨 적는다(스키마의 enum을 읽는다) */
+function allowedKinds(jsonSchema: Record<string, unknown>): string[] | null {
+  const s = jsonSchema as { properties?: { relations?: { items?: { properties?: { kind?: { enum?: string[] } } } } } };
+  return s.properties?.relations?.items?.properties?.kind?.enum ?? null;
+}
+function remapKinds<T extends AntAnalysis>(a: T, kinds: string[] | null): T {
+  if (!kinds) return a;
+  const pool = kinds.filter((k) => !/갈등|모순|대립|충돌/.test(k));
+  const conflict = kinds.find((k) => /갈등|모순|대립|충돌/.test(k));
+  const order = [...new Set(a.relations.map((r) => r.kind))];
+  const map = (k: string) => (kinds.includes(k) ? k : /갈등|모순/.test(k) && conflict ? conflict : (pool[order.indexOf(k) % Math.max(1, pool.length)] ?? kinds[0]));
+  return { ...a, relations: a.relations.map((r) => ({ ...r, kind: map(r.kind) })) };
+}
+
+export const mockGenerate: GenerateFn = async ({ prompt, jsonSchema }) => {
   await new Promise((r) => setTimeout(r, 600));
-  return JSON.stringify(prompt.includes('[1차 분석 결과]') ? MOCK_FOLLOWUP : MOCK_ANALYSIS);
+  const base = prompt.includes('[1차 분석 결과]') ? MOCK_FOLLOWUP : MOCK_ANALYSIS;
+  return JSON.stringify(remapKinds(base, allowedKinds(jsonSchema)));
 };

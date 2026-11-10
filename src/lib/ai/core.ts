@@ -3,7 +3,7 @@
 import type { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { buildFollowupPrompt, buildPrompt, type InterviewDoc } from '../prompt';
-import { AntAnalysis, FollowupAnalysis, tidy, type Change } from '../schema';
+import { DEFAULT_RELATION_KINDS, analysisSchemas, tidy, type AntAnalysis, type Change, type RelationKindDef } from '../schema';
 
 export type GenerateFn = (input: { model: string; prompt: string; jsonSchema: Record<string, unknown> }) => Promise<string>;
 
@@ -25,8 +25,6 @@ function jsonSchema(zs: z.ZodTypeAny): Record<string, unknown> {
   delete s.definitions;
   return s;
 }
-const SCHEMA = jsonSchema(AntAnalysis);
-const FOLLOWUP_SCHEMA = jsonSchema(FollowupAnalysis);
 
 const msgOf = (e: unknown) => String((e as { message?: string })?.message ?? e);
 export const isTransient = (e: unknown) => /\b(500|502|503|504)\b|UNAVAILABLE|overloaded|high demand|INTERNAL|DEADLINE_EXCEEDED/i.test(msgOf(e));
@@ -57,24 +55,32 @@ export interface FollowupResult extends RunResult {
 }
 type RunOpts = { sleep?: (ms: number) => Promise<void>; onStatus?: (s: string) => void };
 
-export async function runAnalysis(generate: GenerateFn, input: { source: string; focus: string; model: ModelId }, opts: RunOpts = {}): Promise<RunResult> {
-  const r = await runStructured(generate, input.model, buildPrompt(input.source, input.focus), AntAnalysis, SCHEMA, opts);
+export async function runAnalysis(
+  generate: GenerateFn,
+  input: { source: string; focus: string; model: ModelId; relationKinds?: RelationKindDef[] },
+  opts: RunOpts = {},
+): Promise<RunResult> {
+  const kinds = input.relationKinds ?? DEFAULT_RELATION_KINDS;
+  const zs = analysisSchemas(kinds).analysis;
+  const r = await runStructured(generate, input.model, buildPrompt(input.source, input.focus, kinds), zs, jsonSchema(zs), opts);
   return { analysis: r.value, model: r.model };
 }
 
 /** 2차 분석: 1차 결과 + 원 자료 + 인터뷰 → 고친 분석과 변화 목록 */
 export async function runFollowup(
   generate: GenerateFn,
-  input: { prev: AntAnalysis; source: string; interviews: InterviewDoc[]; focus: string; model: ModelId },
+  input: { prev: AntAnalysis; source: string; interviews: InterviewDoc[]; focus: string; model: ModelId; relationKinds?: RelationKindDef[] },
   opts: RunOpts = {},
 ): Promise<FollowupResult> {
-  const prompt = buildFollowupPrompt(input.prev, input.source, input.interviews, input.focus);
-  const r = await runStructured(generate, input.model, prompt, FollowupAnalysis, FOLLOWUP_SCHEMA, opts);
+  const kinds = input.relationKinds ?? DEFAULT_RELATION_KINDS;
+  const zs = analysisSchemas(kinds).followup;
+  const prompt = buildFollowupPrompt(input.prev, input.source, input.interviews, input.focus, kinds);
+  const r = await runStructured(generate, input.model, prompt, zs, jsonSchema(zs), opts);
   const { changes, ...analysis } = r.value;
   return { analysis, changes: changes.filter((c) => c.target.trim() || c.description.trim()), model: r.model };
 }
 
-async function runStructured<S extends typeof AntAnalysis | typeof FollowupAnalysis>(
+async function runStructured<S extends z.ZodType<AntAnalysis>>(
   generate: GenerateFn,
   first: ModelId,
   base: string,
